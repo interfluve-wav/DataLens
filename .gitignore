@@ -10,3 +10,7 @@ streamlit.log
 *.md
 !README.md
 !.gitignore
+node_modules/
+frontend/dist/
+frontend/.env
+.cursor/

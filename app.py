@@ -200,7 +200,7 @@ def create_column_heatmap(profiles: list):
         else:
             return 'background-color: #331111; color: #FF4444'
     
-    styled = df.style.applymap(color_quality, subset=['Quality'])
+    styled = df.style.map(color_quality, subset=['Quality'])
     return styled
 
 

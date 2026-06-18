@@ -1,0 +1,12 @@
+# DataLens
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+streamlit.log
+*.csv
+*.md
+!README.md
+!.gitignore

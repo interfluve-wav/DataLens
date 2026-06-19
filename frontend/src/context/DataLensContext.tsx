@@ -6,7 +6,13 @@ import {
   useState,
   type ReactNode,
 } from "react"
-import { uploadCsv, applyFixes as apiApplyFixes, setRowSample as apiSetRowSample } from "@/lib/api"
+import {
+  uploadDataset,
+  deleteSession,
+  applyFixes as apiApplyFixes,
+  setRowSample as apiSetRowSample,
+  type UploadOptions,
+} from "@/lib/api"
 import type { DashboardId, UploadResponse } from "@/types/datalens"
 
 interface DataLensContextValue {
@@ -15,7 +21,11 @@ interface DataLensContextValue {
   error: string | null
   activeDashboard: DashboardId
   setActiveDashboard: (id: DashboardId) => void
-  upload: (file: File, baseline?: File | null) => Promise<void>
+  upload: (
+    file: File,
+    baseline?: File | null,
+    options?: UploadOptions,
+  ) => Promise<void>
   applyFixes: (fixes: Record<string, string>) => Promise<void>
   setRowSample: (rowLimit: number | null) => Promise<void>
   clear: () => void
@@ -30,19 +40,22 @@ export function DataLensProvider({ children }: { children: ReactNode }) {
   const [activeDashboard, setActiveDashboard] =
     useState<DashboardId>("overview")
 
-  const upload = useCallback(async (file: File, baseline?: File | null) => {
-    setLoading(true)
-    setError(null)
-    try {
-      const result = await uploadCsv(file, baseline)
-      setData(result)
-      setActiveDashboard("overview")
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Upload failed")
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+  const upload = useCallback(
+    async (file: File, baseline?: File | null, options?: UploadOptions) => {
+      setLoading(true)
+      setError(null)
+      try {
+        const result = await uploadDataset(file, baseline, options)
+        setData(result)
+        setActiveDashboard("overview")
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Upload failed")
+      } finally {
+        setLoading(false)
+      }
+    },
+    [],
+  )
 
   const applyFixes = useCallback(
     async (fixes: Record<string, string>) => {
@@ -80,10 +93,14 @@ export function DataLensProvider({ children }: { children: ReactNode }) {
   )
 
   const clear = useCallback(() => {
+    const sessionId = data?.session_id
+    if (sessionId) {
+      void deleteSession(sessionId)
+    }
     setData(null)
     setError(null)
     setActiveDashboard("overview")
-  }, [])
+  }, [data?.session_id])
 
   const value = useMemo(
     () => ({

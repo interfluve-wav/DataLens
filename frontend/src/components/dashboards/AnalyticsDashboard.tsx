@@ -10,6 +10,7 @@ import {
   PieChart,
   PolarAngleAxis,
   PolarGrid,
+  PolarRadiusAxis,
   Radar,
   RadarChart,
   ResponsiveContainer,
@@ -90,6 +91,9 @@ function BoxPlotStrip({
 
 export function AnalyticsDashboard({ data }: { data: UploadResponse }) {
   const a: AnalyticsBundle | undefined = data.analytics
+  const legacyNote = data.profile_assessment
+    ? "Legacy profiler model (headline score uses profile assessment)"
+    : undefined
 
   if (!a) {
     return (
@@ -251,7 +255,7 @@ export function AnalyticsDashboard({ data }: { data: UploadResponse }) {
 
         <ChartPanel
           title="Score penalties"
-          description="What reduced the overall quality score"
+          description={legacyNote ?? "What reduced the overall quality score"}
         >
           {a.penalty_breakdown.length === 0 ? (
             <EmptyChart message="No penalties" />
@@ -270,12 +274,17 @@ export function AnalyticsDashboard({ data }: { data: UploadResponse }) {
 
         <ChartPanel
           title="Dataset health radar"
-          description="Normalized dimension scores (0–100)"
+          description={
+            legacyNote
+              ? "Legacy dimension scores (0–100 scale)"
+              : "Normalized dimension scores (0–100)"
+          }
         >
           <ResponsiveContainer width="100%" height="100%">
             <RadarChart data={a.health_radar} cx="50%" cy="50%" outerRadius="70%">
               <PolarGrid stroke="var(--border)" />
               <PolarAngleAxis dataKey="metric" tick={{ ...axisTick, fontSize: 10 }} />
+              <PolarRadiusAxis domain={[0, 100]} tick={{ ...axisTick, fontSize: 9 }} />
               <Radar
                 dataKey="score"
                 stroke="var(--chart-1)"

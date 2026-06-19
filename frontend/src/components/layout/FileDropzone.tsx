@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react"
 import { FileSpreadsheet, Upload, X } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { ACCEPT_FILE_TYPES, isSupportedFile, SUPPORTED_FORMATS_LABEL } from "@/lib/supportedFormats"
 import { Button } from "@/components/ui/button"
 
 function formatBytes(bytes: number) {
@@ -56,7 +57,7 @@ export function FileDropzone({
 
   const pick = useCallback(
     (f: File | null) => {
-      if (f && !f.name.toLowerCase().endsWith(".csv")) return
+      if (f && !isSupportedFile(f.name)) return
       onFile(f)
     },
     [onFile],
@@ -110,13 +111,14 @@ export function FileDropzone({
       >
         <Upload className="size-5 text-muted-foreground" />
         <span className="text-sm text-muted-foreground">
-          Drop CSV here or <span className="text-primary">browse</span>
+          Drop file here or <span className="text-primary">browse</span>
         </span>
+        <span className="text-xs text-muted-foreground">{SUPPORTED_FORMATS_LABEL}</span>
         {hint && <span className="text-xs text-muted-foreground">{hint}</span>}
         <input
           id={id}
           type="file"
-          accept=".csv"
+          accept={ACCEPT_FILE_TYPES}
           className="sr-only"
           onChange={(e) => pick(e.target.files?.[0] ?? null)}
         />

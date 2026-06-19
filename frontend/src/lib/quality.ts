@@ -1,4 +1,21 @@
-import type { QualityLevel } from "@/types/datalens"
+import type { QualityLevel, UploadResponse } from "@/types/datalens"
+
+/** Prefer profile-weighted score when a sector assessment is present. */
+export function effectiveQualityScore(data: UploadResponse): {
+  overall: number
+  level: QualityLevel
+} {
+  if (data.profile_assessment) {
+    return {
+      overall: data.profile_assessment.overall,
+      level: data.profile_assessment.level,
+    }
+  }
+  return {
+    overall: data.quality_score.overall,
+    level: data.quality_score.level,
+  }
+}
 
 /** Strip leading emoji from profiler quality labels. */
 export function qualityLabel(level: QualityLevel | string): string {

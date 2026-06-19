@@ -37,21 +37,35 @@ const tooltipStyle = {
   fontSize: 12,
 }
 
+function EmptyChart({ message }: { message: string }) {
+  return (
+    <div className="flex h-full min-h-48 items-center justify-center text-sm text-muted-foreground">
+      {message}
+    </div>
+  )
+}
+
 export function DistributionsDashboard({ data }: { data: UploadResponse }) {
-  const [selected, setSelected] = useState(data.profiles[0]?.name ?? "")
+  const columns = data.profiles
+  const [selected, setSelected] = useState(columns[0]?.name ?? "")
   const [columnData, setColumnData] = useState<ColumnDataResponse | null>(null)
+  const [loadError, setLoadError] = useState(false)
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
     if (!selected) return
     let cancelled = false
     setLoading(true)
+    setLoadError(false)
     getColumnData(data.session_id, selected)
       .then((result) => {
         if (!cancelled) setColumnData(result)
       })
       .catch(() => {
-        if (!cancelled) setColumnData(null)
+        if (!cancelled) {
+          setColumnData(null)
+          setLoadError(true)
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -59,7 +73,7 @@ export function DistributionsDashboard({ data }: { data: UploadResponse }) {
     return () => {
       cancelled = true
     }
-  }, [data.session_id, data.row_count, selected])
+  }, [data.session_id, data.revision, selected])
 
   const profile = columnData?.profile
   const histData =
@@ -74,7 +88,8 @@ export function DistributionsDashboard({ data }: { data: UploadResponse }) {
       count,
     })) ?? []
 
-  const selectedMeta = data.profiles.find((p) => p.name === selected)
+  const selectedMeta = columns.find((p) => p.name === selected)
+  const isNumeric = profile?.dtype === "numeric"
 
   return (
     <div className="flex flex-col gap-6">
@@ -84,46 +99,53 @@ export function DistributionsDashboard({ data }: { data: UploadResponse }) {
         data={data}
       />
 
-      {profile ? (
+      {columns.length === 0 ? (
+        <Card className="glass-panel">
+          <CardContent className="py-12 text-center text-sm text-muted-foreground">
+            No columns in this dataset.
+          </CardContent>
+        </Card>
+      ) : (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {[
-              { label: "Null %", value: `${profile.null_pct.toFixed(1)}%` },
-              {
-                label: "Unique",
-                value: profile.unique_count.toLocaleString(),
-              },
-              {
-                label: "Mean",
-                value:
-                  profile.mean != null ? profile.mean.toFixed(2) : "—",
-              },
-              {
-                label: "Outliers",
-                value:
-                  profile.dtype === "numeric"
-                    ? `${profile.outlier_pct.toFixed(1)}%`
-                    : "—",
-              },
-            ].map((s) => (
-              <Card key={s.label} className="glass-panel">
-                <CardHeader className="pb-2">
-                  <CardDescription>{s.label}</CardDescription>
-                  <CardTitle>{s.value}</CardTitle>
-                </CardHeader>
-              </Card>
-            ))}
-          </div>
+          {profile && (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {[
+                { label: "Null %", value: `${profile.null_pct.toFixed(1)}%` },
+                {
+                  label: "Unique",
+                  value: profile.unique_count.toLocaleString(),
+                },
+                {
+                  label: "Mean",
+                  value: profile.mean != null ? profile.mean.toFixed(2) : "—",
+                },
+                {
+                  label: "Outliers",
+                  value:
+                    profile.dtype === "numeric"
+                      ? `${profile.outlier_pct.toFixed(1)}%`
+                      : "—",
+                },
+              ].map((s) => (
+                <Card key={s.label} className="glass-panel">
+                  <CardHeader className="pb-2">
+                    <CardDescription>{s.label}</CardDescription>
+                    <CardTitle>{s.value}</CardTitle>
+                  </CardHeader>
+                </Card>
+              ))}
+            </div>
+          )}
 
           <Card className="glass-panel">
             <CardHeader className="gap-4 border-b border-border/40 pb-4">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div className="flex flex-col gap-1">
                   <CardTitle>
-                    {profile.dtype === "numeric" ? "Histogram" : "Top Values"}
+                    {isNumeric ? "Histogram" : profile ? "Top Values" : "Distribution"}
                   </CardTitle>
                   <CardDescription className="flex flex-wrap items-center gap-2">
-                    <span>{selected}</span>
+                    <span>{selected || "Select a column"}</span>
                     {selectedMeta && (
                       <Badge variant="outline">{selectedMeta.dtype}</Badge>
                     )}
@@ -139,7 +161,7 @@ export function DistributionsDashboard({ data }: { data: UploadResponse }) {
                     </SelectTrigger>
                     <SelectContent position="popper" align="end">
                       <SelectGroup>
-                        {data.profiles.map((p) => (
+                        {columns.map((p) => (
                           <SelectItem key={p.name} value={p.name}>
                             {p.name}
                             <span className="ml-2 text-muted-foreground">({p.dtype})</span>
@@ -161,8 +183,14 @@ export function DistributionsDashboard({ data }: { data: UploadResponse }) {
                 className="size-full outline-none [&_.recharts-surface]:outline-none [&_.recharts-wrapper]:outline-none"
                 style={{ opacity: loading ? 0.55 : 1, transition: "opacity 0.15s" }}
               >
-                <ResponsiveContainer width="100%" height="100%">
-                  {profile.dtype === "numeric" && histData.length > 0 ? (
+                {loadError ? (
+                  <EmptyChart message="Failed to load column data" />
+                ) : !profile && !loading ? (
+                  <EmptyChart message="Select a column to view its distribution" />
+                ) : isNumeric && histData.length === 0 ? (
+                  <EmptyChart message="No numeric values to chart (all null or unparseable)" />
+                ) : isNumeric && histData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={histData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" opacity={0.15} stroke="var(--border)" />
                       <XAxis
@@ -189,7 +217,11 @@ export function DistributionsDashboard({ data }: { data: UploadResponse }) {
                         isAnimationActive={false}
                       />
                     </BarChart>
-                  ) : (
+                  </ResponsiveContainer>
+                ) : catData.length === 0 ? (
+                  <EmptyChart message="No values to chart" />
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
                     <BarChart
                       data={catData}
                       layout="vertical"
@@ -219,13 +251,13 @@ export function DistributionsDashboard({ data }: { data: UploadResponse }) {
                         isAnimationActive={false}
                       />
                     </BarChart>
-                  )}
-                </ResponsiveContainer>
+                  </ResponsiveContainer>
+                )}
               </div>
             </CardContent>
           </Card>
 
-          {profile.issues.length > 0 && (
+          {profile && profile.issues.length > 0 && (
             <Card className="glass-panel border-destructive/30">
               <CardHeader>
                 <CardTitle>Detected Issues</CardTitle>
@@ -240,11 +272,7 @@ export function DistributionsDashboard({ data }: { data: UploadResponse }) {
             </Card>
           )}
         </>
-      ) : loading ? (
-        <Card className="glass-panel flex h-80 items-center justify-center">
-          <Loader2 className="size-6 animate-spin text-muted-foreground" />
-        </Card>
-      ) : null}
+      )}
     </div>
   )
 }

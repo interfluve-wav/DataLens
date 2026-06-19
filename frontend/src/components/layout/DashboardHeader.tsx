@@ -1,7 +1,7 @@
 import { Badge } from "@/components/ui/badge"
 import { FadeIn } from "@/components/motion/GsapAnimations"
 import type { UploadResponse } from "@/types/datalens"
-import { qualityLabel } from "@/lib/quality"
+import { qualityLabel, effectiveQualityScore } from "@/lib/quality"
 
 export function DatasetContextLine({ data }: { data: UploadResponse }) {
   const total = data.total_row_count ?? data.row_count
@@ -61,10 +61,10 @@ export function DashboardHeader({
 }
 
 export function QualityScoreChip({ data }: { data: UploadResponse }) {
-  const qs = data.quality_score
+  const effective = effectiveQualityScore(data)
   return (
     <Badge variant="secondary" className="tabular-nums">
-      {qs.overall.toFixed(1)} — {qualityLabel(qs.level)}
+      {effective.overall.toFixed(1)} — {qualityLabel(effective.level)}
     </Badge>
   )
 }

@@ -49,7 +49,11 @@ export function ColumnsDashboard({ data }: { data: UploadResponse }) {
     <div className="flex flex-col gap-6">
       <DashboardHeader
         title="Column Health"
-        description="Per-column diagnostics sorted worst-first. Search to filter."
+        description={
+          data.profile_assessment
+            ? "Per-column profiler scores (legacy model), sorted worst-first."
+            : "Per-column diagnostics sorted worst-first. Search to filter."
+        }
         data={data}
       />
 

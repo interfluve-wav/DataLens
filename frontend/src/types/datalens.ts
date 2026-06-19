@@ -4,6 +4,58 @@ export type QualityLevel =
   | "🟡 Needs Cleaning"
   | "🔴 Poor"
 
+export type QualityProfileId =
+  | "generic"
+  | "retail"
+  | "healthcare"
+  | "financial"
+  | "survey"
+  | "ml_training"
+
+export interface QualityProfileInfo {
+  id: QualityProfileId
+  label: string
+  description: string
+  source: string
+  weights: Record<string, number>
+  dimensions: string[]
+}
+
+export interface DimensionScore {
+  dimension: string
+  score: number
+  weight: number
+  weighted_contribution: number
+}
+
+export interface ContractRuleResult {
+  rule_id: string
+  name: string
+  severity: "critical" | "warning"
+  passed: boolean
+  violation_count: number
+  violation_pct: number
+  total_checked: number
+  message: string
+  sample_failures: Record<string, unknown>[]
+}
+
+export interface ProfileAssessment {
+  profile_id: QualityProfileId
+  profile_label: string
+  source: string
+  required_columns: string[]
+  missing_required_columns: string[]
+  missing_column_hints: string[]
+  dimension_scores: DimensionScore[]
+  overall: number
+  level: QualityLevel
+  contract_passed: boolean
+  rules_passed: number
+  rules_total: number
+  rules: ContractRuleResult[]
+}
+
 export interface ColumnProfile {
   name: string
   dtype: string
@@ -85,6 +137,7 @@ export interface AnalyticsBundle {
 
 export interface UploadResponse {
   session_id: string
+  revision?: number
   filename: string
   row_count: number
   total_row_count?: number
@@ -101,6 +154,16 @@ export interface UploadResponse {
   issue_summary: IssueSummary
   analytics?: AnalyticsBundle
   applied_fixes?: Record<string, string>
+  quality_profile_id?: QualityProfileId
+  profile_assessment?: ProfileAssessment | null
+  sheet_name?: string | null
+  baseline_sheet_name?: string | null
+}
+
+export interface InspectResponse {
+  filename: string
+  has_sheets: boolean
+  sheets: string[]
 }
 
 export interface ColumnDataResponse {

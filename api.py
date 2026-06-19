@@ -5,14 +5,13 @@ Wraps profiler.py with JSON-serializable responses.
 
 from __future__ import annotations
 
-import base64
 import io
 from dataclasses import asdict
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -24,8 +23,26 @@ from profiler import (
     apply_fixes,
     detect_schema_drift,
     generate_markdown_report,
-    load_csv,
     profile_dataframe,
+)
+from tabular_loader import (
+    is_excel_filename,
+    is_supported_filename,
+    list_excel_sheets,
+    list_supported_formats,
+    load_tabular,
+)
+from quality_profiles import PROFILES, assess_profile, empty_cells_per_row, list_profiles
+from hardening import (
+    client_error,
+    delete_session,
+    enforce_dataframe_limits,
+    new_session_id,
+    read_upload_bounded,
+    sanitize_filename,
+    store_session,
+    touch_session,
+    validate_fixes,
 )
 
 app = FastAPI(title="DataLens API", version="2.0.0")
@@ -193,10 +210,7 @@ def _box_plot_stats(df: pd.DataFrame, col: str) -> Optional[Dict[str, Any]]:
 
 def _row_completeness_hist(df: pd.DataFrame) -> List[Dict[str, Any]]:
     """Histogram of how many null/empty values each row has."""
-    # .str is Series-only; see tests/test_api_analytics.py
-    stripped = df.astype(str).apply(lambda col: col.str.strip())
-    empty = df.isna() | (stripped == "")
-    nulls_per_row = empty.sum(axis=1)
+    nulls_per_row = empty_cells_per_row(df)
     if len(nulls_per_row) == 0:
         return []
     counts = nulls_per_row.value_counts().sort_index()
@@ -342,6 +356,35 @@ def _working_df(session: Dict[str, Any]) -> pd.DataFrame:
     return full
 
 
+def _parse_required_columns(raw: Optional[str]) -> Optional[List[str]]:
+    if not raw or not raw.strip():
+        return None
+    return [c.strip() for c in raw.split(",") if c.strip()]
+
+
+def _run_profile_assessment(session: Dict[str, Any]) -> None:
+    df: pd.DataFrame = session["df"]
+    profiles: List[ColumnProfile] = session["profiles"]
+    profile_id = session.get("quality_profile_id", "generic")
+    required = session.get("required_columns")
+    session["profile_assessment"] = assess_profile(
+        df, profiles, profile_id, required
+    )
+
+
+def _drift_target_df(session: Dict[str, Any]) -> pd.DataFrame:
+    """Drift always compares against the full dataset, not a row sample."""
+    return session.get("df_full", session["df"])
+
+
+def _refresh_schema_drift(session: Dict[str, Any]) -> None:
+    baseline = session.get("baseline_df")
+    if baseline is not None:
+        session["schema_drift"] = detect_schema_drift(
+            baseline, _drift_target_df(session)
+        )
+
+
 def _reprofile_session(session: Dict[str, Any]) -> None:
     """Re-profile the working (possibly sampled) dataframe."""
     df = _working_df(session)
@@ -349,8 +392,9 @@ def _reprofile_session(session: Dict[str, Any]) -> None:
     session["df"] = df
     session["profiles"] = profiles
     session["quality_score"] = qs
-    if session.get("baseline_df") is not None:
-        session["schema_drift"] = detect_schema_drift(session["baseline_df"], df)
+    session["revision"] = session.get("revision", 1) + 1
+    _run_profile_assessment(session)
+    _refresh_schema_drift(session)
 
 
 def _session_payload(session: Dict[str, Any], session_id: str) -> Dict[str, Any]:
@@ -367,6 +411,7 @@ def _session_payload(session: Dict[str, Any], session_id: str) -> Dict[str, Any]
 
     return {
         "session_id": session_id,
+        "revision": session.get("revision", 1),
         "filename": session["filename"],
         "row_count": len(df),
         "total_row_count": len(df_full),
@@ -387,6 +432,10 @@ def _session_payload(session: Dict[str, Any], session_id: str) -> Dict[str, Any]
         "issue_summary": issues,
         "analytics": _analytics_bundle(df, profiles, qs, corr, issues),
         "applied_fixes": session.get("applied_fixes", {}),
+        "quality_profile_id": session.get("quality_profile_id", "generic"),
+        "profile_assessment": session.get("profile_assessment"),
+        "sheet_name": session.get("sheet_name"),
+        "baseline_sheet_name": session.get("baseline_sheet_name"),
     }
 
 
@@ -404,53 +453,148 @@ class SampleRequest(BaseModel):
     row_limit: Optional[int] = None  # None = all rows
 
 
+def _load_file_dataset(
+    content: bytes,
+    filename: str,
+    sheet_name: Optional[str] = None,
+) -> pd.DataFrame:
+    return load_tabular(content, filename, sheet_name=sheet_name)
+
+
+def _build_session_from_df(
+    *,
+    filename: str,
+    df: pd.DataFrame,
+    profile_id: str,
+    parsed_required: Optional[List[str]],
+    sheet_name: Optional[str] = None,
+    baseline_df: Optional[pd.DataFrame] = None,
+    baseline_sheet_name: Optional[str] = None,
+) -> tuple[str, Dict[str, Any]]:
+    enforce_dataframe_limits(df)
+    if baseline_df is not None:
+        enforce_dataframe_limits(baseline_df)
+
+    profiles, qs = profile_dataframe(df)
+    session_id = new_session_id()
+    session: Dict[str, Any] = {
+        "filename": sanitize_filename(filename),
+        "sheet_name": sheet_name,
+        "baseline_sheet_name": baseline_sheet_name,
+        "revision": 1,
+        "df_full": df,
+        "df": df,
+        "row_sample_limit": None,
+        "profiles": profiles,
+        "quality_score": qs,
+        "quality_profile_id": profile_id,
+        "required_columns": parsed_required,
+        "baseline_df": baseline_df,
+        "schema_drift": (
+            detect_schema_drift(baseline_df, df) if baseline_df is not None else None
+        ),
+        "applied_fixes": {},
+    }
+    _run_profile_assessment(session)
+    return session_id, session
+
+
+@app.get("/api/formats")
+def get_supported_formats():
+    return {"formats": list_supported_formats()}
+
+
+@app.get("/api/profiles")
+def get_quality_profiles():
+    return {"profiles": list_profiles()}
+
+
 @app.get("/api/health")
 def health():
     return {"status": "ok", "service": "datalens"}
+
+
+@app.post("/api/inspect")
+async def inspect_file(file: UploadFile = File(...)):
+    """Return Excel sheet names for workbook uploads."""
+    filename = sanitize_filename(file.filename)
+    try:
+        content = await read_upload_bounded(file)
+    except HTTPException:
+        raise
+    if not is_excel_filename(filename):
+        return {"filename": filename, "has_sheets": False, "sheets": []}
+    try:
+        sheets = list_excel_sheets(content, filename)
+    except Exception as exc:
+        raise client_error("Could not read workbook sheets", exc) from exc
+    return {
+        "filename": filename,
+        "has_sheets": len(sheets) > 1,
+        "sheets": sheets,
+    }
 
 
 @app.post("/api/upload")
 async def upload_csv(
     file: UploadFile = File(...),
     baseline: Optional[UploadFile] = File(None),
+    quality_profile: str = Form("generic"),
+    required_columns: Optional[str] = Form(None),
+    sheet_name: Optional[str] = Form(None),
+    baseline_sheet_name: Optional[str] = Form(None),
 ):
-    if not file.filename or not file.filename.lower().endswith(".csv"):
-        raise HTTPException(400, "Please upload a CSV file")
+    if not file.filename or not is_supported_filename(file.filename):
+        raise HTTPException(
+            400,
+            "Unsupported file type. Use CSV, TSV, Excel, ODS, JSON, or Parquet.",
+        )
 
     try:
-        content = await file.read()
-        df = load_csv(content)
-        profiles, qs = profile_dataframe(df)
+        content = await read_upload_bounded(file)
+        df = _load_file_dataset(content, file.filename, sheet_name)
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(400, f"Failed to parse CSV: {exc}") from exc
+        raise client_error("Failed to parse file", exc) from exc
 
-    session_id = base64.urlsafe_b64encode(file.filename.encode()).decode()[:32]
-    session: Dict[str, Any] = {
-        "filename": file.filename,
-        "df_full": df,
-        "df": df,
-        "row_sample_limit": None,
-        "profiles": profiles,
-        "quality_score": qs,
-        "baseline_df": None,
-        "schema_drift": None,
-        "applied_fixes": {},
-    }
+    profile_id = quality_profile if quality_profile in PROFILES else "generic"
+    parsed_required = _parse_required_columns(required_columns)
 
+    baseline_df: Optional[pd.DataFrame] = None
     if baseline is not None:
         try:
-            baseline_bytes = await baseline.read()
-            session["baseline_df"] = load_csv(baseline_bytes)
-            session["schema_drift"] = detect_schema_drift(session["baseline_df"], df)
+            baseline_bytes = await read_upload_bounded(baseline)
+            baseline_name = sanitize_filename(baseline.filename)
+            if not is_supported_filename(baseline_name):
+                raise HTTPException(400, "Unsupported baseline file type")
+            baseline_df = _load_file_dataset(
+                baseline_bytes, baseline_name, baseline_sheet_name
+            )
+        except HTTPException:
+            raise
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
         except Exception as exc:
-            raise HTTPException(400, f"Failed to parse baseline CSV: {exc}") from exc
+            raise client_error("Failed to parse baseline file", exc) from exc
 
-    _sessions[session_id] = session
+    session_id, session = _build_session_from_df(
+        filename=file.filename,
+        df=df,
+        profile_id=profile_id,
+        parsed_required=parsed_required,
+        sheet_name=sheet_name,
+        baseline_df=baseline_df,
+        baseline_sheet_name=baseline_sheet_name,
+    )
+    store_session(_sessions, session_id, session)
 
     payload = _session_payload(session, session_id)
     payload["schema_drift"] = (
         _serialize_drift(session["schema_drift"])
-        if session["schema_drift"]
+        if session.get("schema_drift")
         else None
     )
     return payload
@@ -458,17 +602,26 @@ async def upload_csv(
 
 @app.get("/api/session/{session_id}")
 def get_session(session_id: str):
-    session = _sessions.get(session_id)
-    if not session:
-        raise HTTPException(404, "Session not found")
+    try:
+        session = touch_session(_sessions, session_id)
+    except KeyError:
+        raise HTTPException(404, "Session not found") from None
     return _session_payload(session, session_id)
+
+
+@app.delete("/api/session/{session_id}")
+def remove_session(session_id: str):
+    if not delete_session(_sessions, session_id):
+        raise HTTPException(404, "Session not found")
+    return {"ok": True}
 
 
 @app.get("/api/session/{session_id}/column/{column_name}")
 def get_column_data(session_id: str, column_name: str):
-    session = _sessions.get(session_id)
-    if not session:
-        raise HTTPException(404, "Session not found")
+    try:
+        session = touch_session(_sessions, session_id)
+    except KeyError:
+        raise HTTPException(404, "Session not found") from None
 
     df: pd.DataFrame = session["df"]
     if column_name not in df.columns:
@@ -505,27 +658,30 @@ def get_column_data(session_id: str, column_name: str):
 
 @app.post("/api/drift")
 def compute_drift(req: DriftRequest):
-    session = _sessions.get(req.session_id)
-    if not session:
-        raise HTTPException(404, "Session not found")
+    try:
+        session = touch_session(_sessions, req.session_id)
+    except KeyError:
+        raise HTTPException(404, "Session not found") from None
     if session["baseline_df"] is None:
         raise HTTPException(400, "No baseline uploaded")
 
-    drift = detect_schema_drift(session["baseline_df"], session["df"])
+    drift = detect_schema_drift(session["baseline_df"], _drift_target_df(session))
     session["schema_drift"] = drift
     return _serialize_drift(drift)
 
 
 @app.post("/api/fixes")
 def apply_fixes_endpoint(req: ApplyFixesRequest):
-    session = _sessions.get(req.session_id)
-    if not session:
-        raise HTTPException(404, "Session not found")
-
-    if not req.fixes:
-        raise HTTPException(400, "No fixes specified")
+    try:
+        session = touch_session(_sessions, req.session_id)
+    except KeyError:
+        raise HTTPException(404, "Session not found") from None
 
     try:
+        validate_fixes(req.fixes)
+        missing = [c for c in req.fixes if c not in session["df_full"].columns]
+        if missing:
+            raise ValueError(f"Unknown column(s): {', '.join(missing)}")
         fixed_df = apply_fixes(
             session.get("df_full", session["df"]),
             session["profiles"],
@@ -534,17 +690,20 @@ def apply_fixes_endpoint(req: ApplyFixesRequest):
         session["df_full"] = fixed_df
         session["applied_fixes"].update(req.fixes)
         _reprofile_session(session)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(400, f"Failed to apply fixes: {exc}") from exc
+        raise client_error("Failed to apply fixes", exc) from exc
 
     return _session_payload(session, req.session_id)
 
 
 @app.post("/api/sample")
 def set_row_sample(req: SampleRequest):
-    session = _sessions.get(req.session_id)
-    if not session:
-        raise HTTPException(404, "Session not found")
+    try:
+        session = touch_session(_sessions, req.session_id)
+    except KeyError:
+        raise HTTPException(404, "Session not found") from None
 
     if "df_full" not in session:
         session["df_full"] = session["df"]
@@ -566,14 +725,16 @@ def set_row_sample(req: SampleRequest):
 
 @app.get("/api/session/{session_id}/report")
 def get_report(session_id: str):
-    session = _sessions.get(session_id)
-    if not session:
-        raise HTTPException(404, "Session not found")
+    try:
+        session = touch_session(_sessions, session_id)
+    except KeyError:
+        raise HTTPException(404, "Session not found") from None
 
     report = generate_markdown_report(
         session["profiles"],
         session["quality_score"],
         session.get("schema_drift"),
         filename=session["filename"],
+        profile_assessment=session.get("profile_assessment"),
     )
     return {"markdown": report, "filename": f"datalens_{session['filename']}_report.md"}

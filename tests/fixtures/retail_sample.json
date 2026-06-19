@@ -1,0 +1,28 @@
+{
+  "records": [
+    {
+      "store_id": "1",
+      "date": "2024-06-01",
+      "sku": "A",
+      "sales": "100"
+    },
+    {
+      "store_id": "2",
+      "date": "2024-06-02",
+      "sku": "B",
+      "sales": "200"
+    },
+    {
+      "store_id": "3",
+      "date": "2024-06-03",
+      "sku": "C",
+      "sales": "150"
+    },
+    {
+      "store_id": "4",
+      "date": "",
+      "sku": "D",
+      "sales": "-5"
+    }
+  ]
+}

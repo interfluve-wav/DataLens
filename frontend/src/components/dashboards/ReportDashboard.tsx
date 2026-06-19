@@ -28,7 +28,7 @@ export function ReportDashboard({ data }: { data: UploadResponse }) {
       })
       .catch(() => toast.error("Failed to load report"))
       .finally(() => setLoading(false))
-  }, [data.session_id, data.quality_score.overall])
+  }, [data.session_id, data.quality_score.overall, data.profile_assessment?.overall])
 
   const download = () => {
     if (!markdown) return

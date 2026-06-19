@@ -10,10 +10,16 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 import numpy as np
 from profiler import (
-    load_csv, profile_dataframe, detect_schema_drift,
-    apply_fixes, generate_markdown_report,
-    ColumnProfile, QualityScore, SchemaDrift, QualityLevel
+    ColumnProfile,
+    QualityScore,
+    SchemaDrift,
+    QualityLevel,
+    apply_fixes,
+    generate_markdown_report,
+    profile_dataframe,
+    detect_schema_drift,
 )
+from tabular_loader import load_tabular
 
 # Page config
 st.set_page_config(
@@ -286,10 +292,18 @@ def render_header():
         st.markdown('<div class="sub-header">CSV Quality Analyzer — Score, diagnose, and fix your data</div>', unsafe_allow_html=True)
     
     with col2:
-        uploaded = st.file_uploader("Upload CSV", type=['csv'], key="main_upload")
-    
+        uploaded = st.file_uploader(
+            "Upload dataset",
+            type=["csv", "tsv", "txt", "xlsx", "xlsm", "xls", "ods", "json"],
+            key="main_upload",
+        )
+
     with col3:
-        baseline = st.file_uploader("Upload Baseline (optional)", type=['csv'], key="baseline_upload")
+        baseline = st.file_uploader(
+            "Upload Baseline (optional)",
+            type=["csv", "tsv", "txt", "xlsx", "xlsm", "xls", "ods", "json"],
+            key="baseline_upload",
+        )
     
     return uploaded, baseline
 
@@ -541,9 +555,9 @@ def main():
     if uploaded is not None:
         file_bytes = uploaded.read()
         
-        with st.spinner("Loading and profiling CSV..."):
+        with st.spinner("Loading and profiling dataset..."):
             try:
-                df = load_csv(file_bytes)
+                df = load_tabular(file_bytes, uploaded.name)
                 st.session_state.df = df
                 
                 profiles, qs = profile_dataframe(df)
@@ -555,14 +569,14 @@ def main():
                 st.session_state.schema_drift = None
                 
             except Exception as e:
-                st.error(f"Error loading CSV: {str(e)}")
+                st.error(f"Error loading file: {str(e)}")
                 return
     
     # Process baseline file
     if baseline is not None and st.session_state.baseline_df is None:
         baseline_bytes = baseline.read()
         try:
-            st.session_state.baseline_df = load_csv(baseline_bytes)
+            st.session_state.baseline_df = load_tabular(baseline_bytes, baseline.name)
             st.session_state.schema_drift = None  # Will recompute
         except Exception as e:
             st.error(f"Error loading baseline: {str(e)}")

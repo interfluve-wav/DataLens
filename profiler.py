@@ -6,7 +6,6 @@ Handles CSV analysis, quality scoring, and recommendations.
 import pandas as pd
 import numpy as np
 from scipy import stats
-import chardet
 import re
 from typing import Dict, List, Tuple, Optional, Any
 from dataclasses import dataclass, asdict
@@ -147,39 +146,30 @@ def _has_whitespace_issues(val: str) -> bool:
 
 
 def detect_encoding(file_bytes: bytes) -> str:
-    result = chardet.detect(file_bytes)
-    return result.get('encoding', 'utf-8')
+    from tabular_loader import detect_encoding as _detect_encoding
+
+    return _detect_encoding(file_bytes)
 
 
 def detect_delimiter(file_bytes_str: str, sample_size: int = 2048) -> str:
-    sample = file_bytes_str[:sample_size]
-    delimiters = [',', '\t', ';', '|']
-    counts = {d: sample.count(d) for d in delimiters}
-    return max(counts, key=counts.get)
+    from tabular_loader import detect_delimiter as _detect_delimiter
+
+    return _detect_delimiter(file_bytes_str, sample_size)
 
 
 def load_csv(file_bytes: bytes) -> pd.DataFrame:
-    encoding = detect_encoding(file_bytes)
-    try:
-        text = file_bytes.decode(encoding)
-    except UnicodeDecodeError:
-        text = file_bytes.decode('utf-8', errors='replace')
-    delimiter = detect_delimiter(text)
+    from tabular_loader import load_csv as _load_csv
 
-    df = pd.read_csv(
-        pd.io.common.BytesIO(file_bytes),
-        encoding=encoding,
-        delimiter=delimiter,
-        keep_default_na=True,
-        na_values=['', 'NA', 'N/A', 'NULL', 'null', 'NaN', 'nan'],
-        dtype=str,  # read all as strings to preserve mixed types
-    )
-    return df
+    return _load_csv(file_bytes)
 
 
 def _try_convert_numeric(series: pd.Series) -> Optional[pd.Series]:
     """Try to convert string series to numeric, return None if too mixed."""
-    cleaned = series.str.strip()
+    if pd.api.types.is_numeric_dtype(series):
+        return series
+    if not (pd.api.types.is_string_dtype(series) or series.dtype == object):
+        series = series.astype(str)
+    cleaned = series.astype(str).str.strip()
     cleaned = cleaned.replace(['', 'NA', 'N/A', 'NULL', 'null', 'NaN', 'nan', 'TBD', 'N/A', 'n/a'], np.nan)
     converted = pd.to_numeric(cleaned, errors='coerce')
     null_ratio = converted.isna().sum() / len(series)
@@ -484,10 +474,11 @@ def detect_schema_drift(baseline_df: pd.DataFrame, new_df: pd.DataFrame) -> Sche
         new_dtype = str(new_df[col].dtype)
         if old_dtype != new_dtype:
             type_changed.append((col, old_dtype, new_dtype))
-        if pd.api.types.is_numeric_dtype(baseline_df[col]) and pd.api.types.is_numeric_dtype(new_df[col]):
-            old_clean = baseline_df[col].dropna()
-            new_clean = new_df[col].dropna()
-            if len(old_clean) > 10 and len(new_clean) > 10:
+        old_num = pd.to_numeric(baseline_df[col], errors="coerce")
+        new_num = pd.to_numeric(new_df[col], errors="coerce")
+        old_clean = old_num.dropna()
+        new_clean = new_num.dropna()
+        if len(old_clean) > 10 and len(new_clean) > 10:
                 try:
                     stat, p_value = stats.ks_2samp(old_clean, new_clean)
                     if p_value < 0.05:
@@ -507,9 +498,19 @@ def detect_schema_drift(baseline_df: pd.DataFrame, new_df: pd.DataFrame) -> Sche
 
 
 def apply_fixes(df: pd.DataFrame, column_profiles: List[ColumnProfile], fixes: Dict[str, str]) -> pd.DataFrame:
+    from hardening import VALID_FIX_TYPES
+
+    unknown = {v for v in fixes.values() if v not in VALID_FIX_TYPES}
+    if unknown:
+        raise ValueError(f"Unknown fix type(s): {', '.join(sorted(unknown))}")
+
     result = df.copy()
+    if "dedupe" in fixes.values():
+        result = result.drop_duplicates()
     for col, fix_type in fixes.items():
         if col not in result.columns:
+            raise ValueError(f"Unknown column: {col}")
+        if fix_type == "dedupe":
             continue
         if fix_type == 'drop_nulls':
             result = result.dropna(subset=[col])
@@ -521,9 +522,8 @@ def apply_fixes(df: pd.DataFrame, column_profiles: List[ColumnProfile], fixes: D
             mode_val = result[col].mode()
             result[col] = result[col].fillna(mode_val.iloc[0] if not mode_val.empty else '')
         elif fix_type == 'strip_whitespace':
-            result[col] = result[col].astype(str).str.strip()
-        elif fix_type == 'dedupe':
-            result = result.drop_duplicates()
+            mask = result[col].notna()
+            result.loc[mask, col] = result.loc[mask, col].astype(str).str.strip()
     return result
 
 
@@ -531,16 +531,47 @@ def generate_markdown_report(
     column_profiles: List[ColumnProfile],
     quality_score: QualityScore,
     schema_drift: Optional[SchemaDrift] = None,
-    filename: str = "data.csv"
+    filename: str = "data.csv",
+    profile_assessment: Optional[Dict[str, Any]] = None,
 ) -> str:
-    lines = [
-        f"# DataLens Quality Report: {filename}",
-        "",
-        f"**Overall Score:** {quality_score.overall:.1f}/100 — {quality_score.level.value}",
-        "",
-        "## Score Breakdown",
-        ""
-    ]
+    lines = [f"# DataLens Quality Report: {filename}", ""]
+
+    if profile_assessment:
+        pa = profile_assessment
+        contract = "passed" if pa.get("contract_passed") else "failed"
+        lines.extend([
+            f"**Profile:** {pa.get('profile_label', 'Unknown')}",
+            f"**Profile Score:** {pa.get('overall', 0):.1f}/100 — {pa.get('level', '')}",
+            f"**Data contract:** {contract} ({pa.get('rules_passed', 0)}/{pa.get('rules_total', 0)} rules)",
+            "",
+        ])
+        if pa.get("dimension_scores"):
+            lines.extend(["## Profile dimension scores", ""])
+            for d in pa["dimension_scores"]:
+                dim = d["dimension"].replace("_", " ").title()
+                lines.append(
+                    f"- **{dim}:** {d['score']:.1f} (weight {(d['weight'] * 100):.0f}%)"
+                )
+            lines.append("")
+        failed = [r for r in pa.get("rules", []) if not r.get("passed")]
+        if failed:
+            lines.extend(["## Contract failures", ""])
+            for r in failed:
+                lines.append(f"- **{r['name']}** ({r['severity']}): {r['message']}")
+            lines.append("")
+        lines.extend([
+            "## Legacy profiler score",
+            "",
+            f"**Overall:** {quality_score.overall:.1f}/100 — {quality_score.level.value}",
+            "",
+        ])
+    else:
+        lines.append(
+            f"**Overall Score:** {quality_score.overall:.1f}/100 — {quality_score.level.value}"
+        )
+        lines.append("")
+
+    lines.extend(["## Score Breakdown", ""])
     for issue, penalty in quality_score.breakdown.items():
         lines.append(f"- **{issue.replace('_', ' ').title()}:** -{penalty:.1f} points")
     lines.extend([

@@ -30,7 +30,7 @@ import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { useDataLens } from "@/context/DataLensContext"
 import { DASHBOARDS, type DashboardId } from "@/types/datalens"
-import { qualityLabel } from "@/lib/quality"
+import { qualityLabel, effectiveQualityScore } from "@/lib/quality"
 import { DashboardRouter } from "@/components/layout/DashboardRouter"
 import { RowSampleSelect } from "@/components/layout/RowSampleSelect"
 import { LoadingOverlay } from "@/components/layout/LoadingOverlay"
@@ -60,7 +60,7 @@ export function AppShell() {
 
   if (!data) return null
 
-  const qs = data.quality_score
+  const effective = effectiveQualityScore(data)
 
   return (
     <SidebarProvider>
@@ -75,16 +75,22 @@ export function AppShell() {
               <p className="truncate text-sm font-semibold leading-none">DataLens</p>
               <p className="mt-1 truncate text-xs text-muted-foreground">
                 {data.filename}
+                {data.sheet_name ? ` · ${data.sheet_name}` : ""}
               </p>
             </div>
           </div>
           <div className="flex flex-wrap gap-1.5">
             <Badge variant="secondary" className="tabular-nums">
-              {qs.overall.toFixed(1)}
+              {effective.overall.toFixed(1)}
             </Badge>
             <Badge variant="outline" className="text-xs">
-              {qualityLabel(qs.level)}
+              {qualityLabel(effective.level)}
             </Badge>
+            {data.profile_assessment && data.quality_profile_id !== "generic" && (
+              <Badge variant="outline" className="text-xs">
+                {data.profile_assessment.profile_label}
+              </Badge>
+            )}
           </div>
         </SidebarHeader>
         <SidebarContent className="gap-0">

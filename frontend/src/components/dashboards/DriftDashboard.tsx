@@ -36,8 +36,9 @@ export function DriftDashboard({ data }: { data: UploadResponse }) {
               No baseline loaded
             </CardTitle>
             <CardDescription>
-              Upload a baseline CSV with your next analysis to detect schema and
-              distribution changes automatically.
+              Upload a baseline file (CSV, TSV, Excel, ODS, JSON, or Parquet) with
+              your next analysis to detect schema and distribution changes
+              automatically.
             </CardDescription>
           </CardHeader>
         </Card>
@@ -73,11 +74,8 @@ export function DriftDashboard({ data }: { data: UploadResponse }) {
             variant: "secondary" as const,
           },
           {
-            label: "Stable cols",
-            value:
-              data.column_count -
-              drift.added_columns.length -
-              drift.removed_columns.length,
+            label: "In both versions",
+            value: data.column_count - drift.added_columns.length,
             icon: GitCompare,
             variant: "outline" as const,
           },

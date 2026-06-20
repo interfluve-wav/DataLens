@@ -1,6 +1,8 @@
 import type {
   ColumnDataResponse,
   InspectResponse,
+  LlmStatus,
+  LlmVerificationResult,
   QualityProfileId,
   QualityProfileInfo,
   UploadResponse,
@@ -183,5 +185,36 @@ export async function getReport(
 ): Promise<{ markdown: string; filename: string }> {
   const res = await fetch(`${API_BASE}/api/session/${sessionId}/report`)
   if (!res.ok) throw new Error("Failed to generate report")
+  return res.json()
+}
+
+export async function fetchLlmStatus(): Promise<LlmStatus> {
+  const res = await fetch(`${API_BASE}/api/llm/status`)
+  if (!res.ok) throw new Error("Failed to load LLM status")
+  return res.json()
+}
+
+export async function runLlmVerify(sessionId: string): Promise<UploadResponse> {
+  const res = await fetch(
+    `${API_BASE}/api/session/${encodeURIComponent(sessionId)}/llm/verify`,
+    { method: "POST" },
+  )
+  if (!res.ok) {
+    throw new Error(await readApiError(res, "AI review failed"))
+  }
+  return res.json()
+}
+
+export async function getLlmVerification(
+  sessionId: string,
+): Promise<{
+  verification: LlmVerificationResult | null
+  stale: boolean
+  revision: number
+}> {
+  const res = await fetch(
+    `${API_BASE}/api/session/${encodeURIComponent(sessionId)}/llm/verification`,
+  )
+  if (!res.ok) throw new Error("Failed to load verification")
   return res.json()
 }

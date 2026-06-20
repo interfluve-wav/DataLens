@@ -1,221 +1,208 @@
-# DataLens — CSV Quality Analyzer
+# DataLens — Tabular Data Quality Analyzer
 
-[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://datalens.streamlit.app)
+**Score, diagnose, and fix tabular data before it hits your pipeline.** DataLens produces an auditable quality score (0–100), sector-specific data contracts, column-level diagnostics, interactive dashboards, one-click fixes, schema drift detection, and optional AI-assisted semantic review — all grounded in deterministic Python profiling.
 
-**A single, auditable Data Quality Score (0–100) for any CSV — with column-level diagnostics, interactive visualizations, one-click fixes, schema drift detection, and shareable markdown reports.**
-
----
-
-## Why DataLens?
-
-### The Problem
-> **Analysts spend 30–60% of their time cleaning data before it even gets touched.** The cleaning step is invisible, undocumented, and inconsistent across team members. Nobody has a *standard* way to say *"this CSV is trustworthy"* or *"this column is problematic."*
-
-### The Solution
-DataLens gives analysts a **repeatable, shareable, auditable** way to:
-1. **Score** a CSV's quality before importing it anywhere
-2. **Understand why** it scored that way (column-by-column breakdown)
-3. **Fix the most impactful issues** in one click
-4. **Track schema drift** across versions of the same file
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](requirements.txt)
+[![FastAPI](https://img.shields.io/badge/API-FastAPI-009688)](api.py)
+[![React](https://img.shields.io/badge/UI-React%20%2B%20Vite-61DAFB)](frontend/)
 
 ---
 
-## The Core Product Decision
+## About DataLens
 
-**The central artifact: a single Data Quality Score (0–100)**
+DataLens is a **local-first data quality workbench** for analysts, researchers, and ML engineers who need a fast, repeatable answer to: *“Is this dataset trustworthy enough to use?”*
 
-Everything else (profiling, visualizations, recommendations) serves explaining that number.
+Unlike chat-only AI tools, DataLens runs **deterministic profiling first** (`profiler.py` + `quality_profiles.py`). Every score, contract rule, and violation count comes from pandas/scipy on your machine. Optional LLM review (Phase 1) only interprets a **bounded summary** of that output — it never sees your full dataset and cannot change scores or apply fixes without your approval.
 
-### Weighted Composite Scoring
+### What you get
 
-| Issue Type | Weight | Rationale |
-|---|---|---|
-| Null / missing values | 25% | Most downstream failures |
-| Duplicate rows | 20% | Inflation, double-counting |
-| Outliers (IQR method) | 20% | Data entry errors vs. real signal |
-| Type mismatches | 15% | Parsing failures, mixed types |
-| Low cardinality flags | 10% | Likely categorical treated as numeric |
-| Schema drift vs. baseline | 10% | Silent breaking changes |
+| Layer | What it does |
+|-------|----------------|
+| **Profiler** | Column stats, null/outlier/mixed-type detection, email/date/encoding checks |
+| **Sector profiles** | Weighted dimension scores + pass/fail contracts for retail, healthcare, financial, survey, ML training |
+| **Dashboards** | Overview, columns, distributions, BI analytics, fixes, drift, correlation, report |
+| **Fixes** | Allowlisted transforms (`drop_nulls`, impute, strip whitespace, dedupe) with revision tracking |
+| **AI review** | Semantic triage over profiler evidence (mock or OpenAI); sub-cent per review on budget models |
 
-### Score Interpretation
-- **90–100** 🟢 **Excellent** — Ready to use
-- **70–89** 🟢 **Good** — Minor cleanup needed
-- **50–69** 🟡 **Needs Cleaning** — Significant issues
-- **0–49** 🔴 **Poor** — Major problems
+### Who it’s for
 
----
+- **Survey / research teams** — duplicate respondents, item missingness, Likert encoding issues  
+- **Retail / ops** — transaction keys, negative sales, duplicate rows  
+- **ML practitioners** — label presence, feature completeness, leakage hints via correlation  
+- **Anyone with CSV/Excel/Parquet** — one upload, eight dashboards, exportable markdown report  
 
-## Features
+### Design principles
 
-### 📊 F1: CSV Upload + Auto-Profiling
-- Drag-and-drop or file picker
-- Auto-detects delimiter, encoding
-- Per-column: type, null%, unique count, cardinality, distribution stats (mean/median/std/min/max for numeric; top-5 values for categorical)
-- Clean column overview table (like Metabase/Soda.io)
+1. **Deterministic truth** — Python counts; LLM advises  
+2. **Auditable** — revision history, sample failures, exportable reports  
+3. **Polish over enterprise** — in-memory sessions, no auth wall for local dev  
+4. **Bounded AI** — context packer caps tokens; no raw PII in prompts by default  
 
-### 📈 F2: Data Quality Score + Explanation
-- Large gauge visualization (Plotly)
-- Per-issue breakdown: horizontal bar chart showing penalty contribution
-- Per-column heatmap: color-coded table (green/yellow/red by severity)
-- Score interpretation label
-
-### 🛠️ F3: Column-Level Recommendations + One-Click Fixes
-- Actionable advice per column:
-  - *"Column `revenue` is 22% null — impute with median or drop if >50%"*
-  - *"Column `email` has 8% format mismatches — validate with regex"*
-  - *"Column `joined_date` parsed as string — cast to DATE type"*
-- One-click apply fixes (drop nulls, impute median/mode, cast types, dedupe)
-
-### 📊 F4: Distribution Visualizations
-- Histogram for each numeric column (Plotly)
-- Box plot overlay showing outliers in red
-- Bar chart for top categorical values
-- All charts interactive (hover, zoom, log scale toggle)
-
-### 🔄 F5: Schema Drift Detection
-- Upload two versions of the same CSV (baseline + new)
-- Side-by-side comparison:
-  - Added columns
-  - Removed columns
-  - Type-changed columns
-  - Distribution-shifted columns (Kolmogorov-Smirnov test p-value)
-- Summary: *"3 breaking changes, 2 warnings"*
-
-### 📄 F6: Quality Report Export
-- Generate markdown report: score, column table, top issues, recommendations, drift summary
-- One-click download
-- Attach to tickets or share with data engineers before ingestion
+See [docs/DataLens-LLM-Integration-Architecture-Proposal.md](docs/DataLens-LLM-Integration-Architecture-Proposal.md) for the full LLM roadmap (verifier → fix planner → executor).
 
 ---
 
 ## Quickstart
 
-### Local Development
+### Recommended: React UI + FastAPI
+
 ```bash
-# Clone
 git clone https://github.com/interfluve-wav/DataLens.git
 cd DataLens
 
-# Setup
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 
-# Run
+# API (port 8000) + Vite frontend (port 5173)
+./dev.sh
+```
+
+Open **http://localhost:5173** — upload a file, pick a sector profile, explore dashboards.
+
+### Legacy: Streamlit
+
+```bash
+source venv/bin/activate
 streamlit run app.py
 # → http://localhost:8501
 ```
 
-### Deploy to Streamlit Community Cloud
-1. Push to GitHub
-2. Connect repo at [share.streamlit.io](https://share.streamlit.io)
-3. Deploy — free hosting, auto-updates on push
+### Tests
+
+```bash
+venv/bin/python3 -m pytest tests/ -v
+```
+
+---
+
+## Supported formats
+
+CSV, TSV, Excel (`.xlsx`, `.xlsm`), ODS, JSON, Parquet — via `tabular_loader.py`.
+
+---
+
+## Quality profiles & contracts
+
+| Profile | Focus |
+|---------|--------|
+| `generic` | Balanced hygiene scoring |
+| `retail` | Store/date/SKU uniqueness, non-negative sales |
+| `healthcare` | Clinical completeness, timeliness, precision |
+| `financial` | Timeliness, email format (KYC-oriented) |
+| `survey` | Respondent uniqueness, item missingness, completeness |
+| `ml_training` | Label presence, duplicates, outliers |
+
+Each profile produces **dimension scores** (weighted 0–100) and **contract rules** (critical vs warning) with `sample_failures` for failed checks.
+
+---
+
+## AI semantic review (Phase 1)
+
+After upload, open **Quality Overview → Run AI review**. The pipeline:
+
+1. **Context packer** — failed rules, capped sample rows, column summaries (~1.5–2.5k input tokens)  
+2. **Verifier** — structured JSON: confirmed issues, rejected false positives, evidence refs  
+3. **You** — read results; fixes still require explicit approval (Phase 2 planner coming)
+
+### LLM configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATALENS_LLM_PROVIDER` | `mock` | `mock` \| `openai` \| `none` |
+| `DATALENS_LLM_MODEL` | `gpt-4o-mini` | OpenAI model when provider is `openai` |
+| `OPENAI_API_KEY` | — | Required for `openai` provider |
+| `DATALENS_LLM_MAX_SAMPLE_ROWS` | `5` | Max sample rows per failed rule in context pack |
+
+`mock` runs without an API key (deterministic triage from profiler output). Set `none` to hide AI UI.
+
+**Cost ballpark** (one review, ~2.5k in / 1.5k out): Fireworks DeepSeek V4 Flash **&lt;0.1¢**, DeepSeek V4 Pro **~1¢**, Claude Opus 4.7 / GPT-5.5 **~5–6¢** — independent of dataset row count.
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────┐
-│         Streamlit (app.py)          │  ← UI, state, tabs, Plotly charts
-├─────────────────────────────────────┤
-│         profiler.py (engine)        │  ← Pure Python, zero UI deps
-│  • load_csv()        - encoding/    │
-│  • profile_column()  - stats, IQR   │
-│  • profile_dataframe()               │
-│  • calculate_column_quality()        │
-│  • detect_schema_drift()  - KS test │
-│  • apply_fixes()       - transforms │
-│  • generate_markdown_report()        │
-└─────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│  frontend/ (React + Vite + shadcn + Recharts + GSAP)        │
+│  Upload → 8 dashboards → fixes / report export              │
+└───────────────────────────┬─────────────────────────────────┘
+                            │ /api
+┌───────────────────────────▼─────────────────────────────────┐
+│  api.py (FastAPI, in-memory sessions, revision tracking)      │
+│  llm_context.py → llm_verifier.py (optional advisory layer) │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+┌───────────────────────────▼─────────────────────────────────┐
+│  profiler.py          tabular_loader.py    quality_profiles.py │
+│  hardening.py (limits, VALID_FIX_TYPES, session TTL)          │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-**Stack:** Python + Streamlit + Pandas + Plotly + SciPy + chardet  
-**Cost:** $0 | **Time to build:** ~8 hrs | **Hosting:** Streamlit Community Cloud (free)
+**Stack:** Python 3.12+, FastAPI, pandas, scipy, React 19, TypeScript, Vite  
+**Legacy UI:** Streamlit (`app.py`) — kept for reference, not the primary surface  
 
 ---
 
-## Validation (Not Hallucinated)
+## API highlights
 
-Every number traces to **pandas/scipy computations on real data**:
-
-| Dataset | Rows × Cols | Score | Ground Truth Validated |
-|---|---|---|---|
-| **Titanic** | 891 × 12 | 93.4 🟢 | Age 19.9% null, Cabin 77.1% null, Fare/Parch outliers |
-| **CA Housing** | 20,640 × 10 | 99.2 🟢 | total_bedrooms 1% null, all outliers manually verified |
-| **Wine Quality** | 1,599 × 12 | 78.5 🟢 | quality ordinal (6 values), 0 nulls, all IQR outliers verified |
-
-- ✅ **Consistency:** 5 consecutive runs → identical scores (std = 0.000000)
-- ✅ **Schema drift:** Correctly detects added/removed/type changes/distribution shifts (KS-test)
-- ✅ **Fix application:** Verified score improvement after impute/drop
+| Endpoint | Purpose |
+|----------|---------|
+| `POST /api/upload` | Upload dataset + optional baseline + quality profile |
+| `GET /api/session/{id}` | Full session payload (scores, rules, analytics) |
+| `POST /api/fixes` | Apply allowlisted column fixes, bump revision |
+| `POST /api/session/{id}/llm/verify` | Run AI semantic review |
+| `GET /api/session/{id}/report` | Markdown quality report |
 
 ---
 
-## Example Output
-
-### Quality Gauge + Breakdown
-![Quality Gauge](docs/gauge.png)
-
-### Column Heatmap
-| Column | Type | Null% | Unique | Quality | Issues |
-|--------|------|-------|--------|---------|--------|
-| Age | numeric | 19.9% | 88 | 🟡 Needs Cleaning | 19.9% null; 1.5% outliers |
-| Cabin | categorical | 77.1% | 147 | 🟡 Needs Cleaning | 77.1% null |
-| Fare | numeric | 0.0% | 248 | 🟢 Good | 13.0% outliers |
-
-### Markdown Report (Downloadable)
-```markdown
-# DataLens Quality Report: titanic.csv
-
-**Overall Score:** 93.4/100 — 🟢 Excellent
-
-## Score Breakdown
-- **Nulls:** -2.0 points
-- **Outliers:** -1.2 points
-- **Low Cardinality:** -3.3 points
-
-## Column Overview
-| Column | Type | Null% | Unique | Quality | Issues |
-|---|---|---|---|---|---|
-| Age | numeric | 19.9% | 88 | 🟡 Needs Cleaning | 19.9% null values; 1.5% outliers |
-
-## Recommendations
-1. Column `Age` is 19.9% null — impute with median
-2. Column `Cabin` is 77.1% null — consider dropping
-```
-
----
-
-## Project Structure
+## Project structure
 
 ```
 DataLens/
-├── app.py              # Streamlit web application
-├── profiler.py         # Core profiling engine (zero UI deps)
-├── requirements.txt    # Dependencies
-├── test_data/          # Sample CSVs for testing
-│   ├── titanic.csv
-│   ├── housing.csv
-│   └── wine.csv
-├── .gitignore
-└── README.md
+├── api.py                 # FastAPI backend
+├── profiler.py            # Core profiling engine
+├── quality_profiles.py    # Sector profiles + DQ contracts
+├── tabular_loader.py      # Multi-format ingest
+├── hardening.py           # Upload limits, sessions, fix allowlist
+├── llm_config.py          # LLM provider env
+├── llm_context.py         # Context packer (bounded prompt payload)
+├── llm_verifier.py        # Verifier (mock / OpenAI)
+├── app.py                 # Legacy Streamlit UI
+├── frontend/              # React primary UI
+├── tests/                 # pytest suite
+├── docs/                  # Architecture & design docs
+├── scripts/dev.sh         # Local dev orchestration
+└── requirements.txt
 ```
+
+---
+
+## Validation
+
+Scores and contract results trace to **pandas/scipy on real data** — not LLM guesses.
+
+```bash
+venv/bin/python3 -m pytest tests/ -v
+```
+
+Integration tests cover multi-format upload, retail/survey contracts, API hardening, analytics, and LLM verify + revision invalidation.
 
 ---
 
 ## Contributing
 
-1. Fork the repo
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit changes (`git commit -m 'Add amazing feature'`)
-4. Push to branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+1. Fork the repo  
+2. Create a feature branch (`git checkout -b feature/your-feature`)  
+3. Commit with a clear message  
+4. Push and open a Pull Request  
+5. Run `pytest` before submitting  
 
 ---
 
 ## License
 
-MIT License — free to use, modify, distribute.
+MIT License — free to use, modify, and distribute.
 
 ---
 
@@ -223,4 +210,4 @@ MIT License — free to use, modify, distribute.
 
 **Suhaas Chitturi** — [@interfluve-wav](https://github.com/interfluve-wav)
 
-Built for the portfolio: demonstrates Python data engineering + Plotly visualization + Streamlit deployment + product thinking.
+DataLens demonstrates production-minded data quality tooling: deterministic analytics, sector contracts, a modern React dashboard, and a trust-boundary-aware LLM integration path.

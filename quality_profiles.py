@@ -428,6 +428,30 @@ def build_contract_rules(
             )
         )
 
+    if profile.id == "survey":
+        if respondent := _resolve_column(
+            df, profile.column_hints.get("respondent_id", [])
+        ):
+            rules.append(
+                ContractRule(
+                    id="unique_respondent",
+                    name=f"Unique respondent ({respondent})",
+                    severity="warning",
+                    rule_type="unique",
+                    columns=[respondent],
+                )
+            )
+        threshold = 2
+        rules.append(
+            ContractRule(
+                id="high_item_missingness",
+                name=f"Rows with more than {threshold} empty items",
+                severity="warning",
+                rule_type="max_empty_cells_per_row",
+                params={"max_empty": threshold},
+            )
+        )
+
     return rules
 
 
@@ -551,6 +575,28 @@ def evaluate_rule(df: pd.DataFrame, rule: ContractRule) -> Dict[str, Any]:
             "total_checked": len(non_empty),
             "message": f"{viol} invalid format(s)" if viol else "Format valid",
             "sample_failures": _sample_failures(df, pd.Series(mask, index=df.index)),
+        }
+
+    if rule.rule_type == "max_empty_cells_per_row":
+        threshold = int(rule.params.get("max_empty", 3))
+        counts = empty_cells_per_row(df)
+        mask = counts > threshold
+        viol = int(mask.sum())
+        passed = viol == 0
+        return {
+            "rule_id": rule.id,
+            "name": rule.name,
+            "severity": rule.severity,
+            "passed": passed,
+            "violation_count": viol,
+            "violation_pct": round(viol / n * 100, 2),
+            "total_checked": n,
+            "message": (
+                f"{viol} row(s) with more than {threshold} empty items"
+                if viol
+                else f"No rows exceed {threshold} empty items"
+            ),
+            "sample_failures": _sample_failures(df, mask),
         }
 
     return {

@@ -68,10 +68,14 @@ function DashboardFallback() {
 }
 
 export function DashboardRouter() {
-  const { data, activeDashboard } = useDataLens()
+  const { data, activeDashboard, updateData } = useDataLens()
   if (!data) return null
 
   const Dashboard = DASHBOARD_COMPONENTS[activeDashboard]
+  const extra =
+    activeDashboard === "overview"
+      ? { onDataUpdate: updateData }
+      : {}
 
   return (
     <AnimatePresence mode="wait">
@@ -83,7 +87,7 @@ export function DashboardRouter() {
         transition={{ duration: 0.18, ease: "easeOut" }}
       >
         <Suspense fallback={<DashboardFallback />}>
-          <Dashboard data={data} />
+          <Dashboard data={data} {...extra} />
         </Suspense>
       </motion.div>
     </AnimatePresence>

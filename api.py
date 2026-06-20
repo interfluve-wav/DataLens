@@ -44,6 +44,9 @@ from hardening import (
     touch_session,
     validate_fixes,
 )
+from llm_config import llm_enabled, llm_status
+from llm_context import build_context_pack
+from llm_verifier import verification_to_dict, verify_context_pack
 
 app = FastAPI(title="DataLens API", version="2.0.0")
 
@@ -409,9 +412,16 @@ def _session_payload(session: Dict[str, Any], session_id: str) -> Dict[str, Any]
     issues = _issue_summary(profiles)
     limit = session.get("row_sample_limit")
 
+    llm_ver = session.get("llm_verification")
+    rev = session.get("revision", 1)
+    llm_stale = (
+        llm_ver is not None
+        and llm_ver.get("revision") != rev
+    )
+
     return {
         "session_id": session_id,
-        "revision": session.get("revision", 1),
+        "revision": rev,
         "filename": session["filename"],
         "row_count": len(df),
         "total_row_count": len(df_full),
@@ -436,6 +446,10 @@ def _session_payload(session: Dict[str, Any], session_id: str) -> Dict[str, Any]
         "profile_assessment": session.get("profile_assessment"),
         "sheet_name": session.get("sheet_name"),
         "baseline_sheet_name": session.get("baseline_sheet_name"),
+        "llm_verification": llm_ver.get("result") if llm_ver else None,
+        "llm_verification_stale": llm_stale,
+        "llm_verification_revision": llm_ver.get("revision") if llm_ver else None,
+        "llm_available": llm_enabled(),
     }
 
 
@@ -511,7 +525,7 @@ def get_quality_profiles():
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "service": "datalens"}
+    return {"status": "ok", "service": "datalens", "llm": llm_status()}
 
 
 @app.post("/api/inspect")
@@ -738,3 +752,56 @@ def get_report(session_id: str):
         profile_assessment=session.get("profile_assessment"),
     )
     return {"markdown": report, "filename": f"datalens_{session['filename']}_report.md"}
+
+
+@app.get("/api/llm/status")
+def get_llm_status():
+    return llm_status()
+
+
+@app.post("/api/session/{session_id}/llm/verify")
+def run_llm_verify(session_id: str):
+    if not llm_enabled():
+        raise HTTPException(
+            503,
+            "LLM verification is disabled. Set DATALENS_LLM_PROVIDER=mock or configure OpenAI.",
+        )
+    try:
+        session = touch_session(_sessions, session_id)
+    except KeyError:
+        raise HTTPException(404, "Session not found") from None
+
+    try:
+        pack = build_context_pack(session, session_id)
+        result = verify_context_pack(pack)
+        session["llm_verification"] = {
+            "revision": session.get("revision", 1),
+            "result": verification_to_dict(result),
+            "context_revision": pack["revision"],
+        }
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        raise client_error("LLM verification failed", exc) from exc
+
+    return _session_payload(session, session_id)
+
+
+@app.get("/api/session/{session_id}/llm/verification")
+def get_llm_verification(session_id: str):
+    try:
+        session = touch_session(_sessions, session_id)
+    except KeyError:
+        raise HTTPException(404, "Session not found") from None
+
+    llm_ver = session.get("llm_verification")
+    rev = session.get("revision", 1)
+    if not llm_ver:
+        return {"verification": None, "stale": False, "revision": rev}
+
+    return {
+        "verification": llm_ver.get("result"),
+        "stale": llm_ver.get("revision") != rev,
+        "revision": rev,
+        "verification_revision": llm_ver.get("revision"),
+    }

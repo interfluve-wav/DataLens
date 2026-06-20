@@ -28,6 +28,7 @@ interface DataLensContextValue {
   ) => Promise<void>
   applyFixes: (fixes: Record<string, string>) => Promise<void>
   setRowSample: (rowLimit: number | null) => Promise<void>
+  updateData: (next: UploadResponse) => void
   clear: () => void
 }
 
@@ -92,6 +93,10 @@ export function DataLensProvider({ children }: { children: ReactNode }) {
     [data],
   )
 
+  const updateData = useCallback((next: UploadResponse) => {
+    setData(next)
+  }, [])
+
   const clear = useCallback(() => {
     const sessionId = data?.session_id
     if (sessionId) {
@@ -112,6 +117,7 @@ export function DataLensProvider({ children }: { children: ReactNode }) {
       upload,
       applyFixes,
       setRowSample,
+      updateData,
       clear,
     }),
     [
@@ -122,6 +128,7 @@ export function DataLensProvider({ children }: { children: ReactNode }) {
       upload,
       applyFixes,
       setRowSample,
+      updateData,
       clear,
     ],
   )

@@ -27,8 +27,15 @@ import {
   scoreTextClass,
 } from "@/lib/quality"
 import type { UploadResponse } from "@/types/datalens"
+import { AiReviewPanel, RuleSampleFailures } from "@/components/dashboards/AiReviewPanel"
 
-export function OverviewDashboard({ data }: { data: UploadResponse }) {
+export function OverviewDashboard({
+  data,
+  onDataUpdate,
+}: {
+  data: UploadResponse
+  onDataUpdate?: (next: UploadResponse) => void
+}) {
   const { quality_score: qs, issue_summary: issues, profile_assessment: pa } = data
   const effective = effectiveQualityScore(data)
   const breakdown = Object.entries(qs.breakdown).filter(([, v]) => v > 0.05)
@@ -187,7 +194,13 @@ export function OverviewDashboard({ data }: { data: UploadResponse }) {
                       </Badge>
                     </TableCell>
                     <TableCell className="max-w-xs text-sm text-muted-foreground">
-                      {rule.message}
+                      <div>{rule.message}</div>
+                      {!rule.passed && rule.sample_failures?.length > 0 && (
+                        <RuleSampleFailures
+                          ruleId={rule.rule_id}
+                          samples={rule.sample_failures}
+                        />
+                      )}
                     </TableCell>
                     <TableCell className="text-right font-mono tabular-nums">
                       {rule.violation_count > 0
@@ -201,6 +214,8 @@ export function OverviewDashboard({ data }: { data: UploadResponse }) {
           </CardContent>
         </Card>
       )}
+
+      {onDataUpdate && <AiReviewPanel data={data} onUpdate={onDataUpdate} />}
 
       <StaggerChildren className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {kpis.map((kpi) => (

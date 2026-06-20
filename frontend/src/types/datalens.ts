@@ -56,6 +56,40 @@ export interface ProfileAssessment {
   rules: ContractRuleResult[]
 }
 
+export type LlmSuggestedAction = "fix" | "document" | "ignore" | "manual_review"
+
+export interface LlmVerifiedIssue {
+  issue_id: string
+  rule_id?: string | null
+  column?: string | null
+  severity: "critical" | "warning" | "info"
+  title: string
+  explanation: string
+  evidence_refs: string[]
+  suggested_action: LlmSuggestedAction
+}
+
+export interface LlmRejectedFalsePositive {
+  candidate_id: string
+  rule_id?: string | null
+  reason: string
+}
+
+export interface LlmVerificationResult {
+  confirmed_issues: LlmVerifiedIssue[]
+  rejected_false_positives: LlmRejectedFalsePositive[]
+  verification_confidence: number
+  model_id: string
+  prompt_version: string
+  summary: string
+}
+
+export interface LlmStatus {
+  enabled: boolean
+  provider: string
+  model?: string | null
+}
+
 export interface ColumnProfile {
   name: string
   dtype: string
@@ -158,6 +192,10 @@ export interface UploadResponse {
   profile_assessment?: ProfileAssessment | null
   sheet_name?: string | null
   baseline_sheet_name?: string | null
+  llm_verification?: LlmVerificationResult | null
+  llm_verification_stale?: boolean
+  llm_verification_revision?: number | null
+  llm_available?: boolean
 }
 
 export interface InspectResponse {

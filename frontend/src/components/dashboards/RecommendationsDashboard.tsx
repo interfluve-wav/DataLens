@@ -132,6 +132,7 @@ export function RecommendationsDashboard({ data }: { data: UploadResponse }) {
                       onValueChange={(v: string) =>
                         setPending((prev) => ({ ...prev, [profile.name]: v }))
                       }
+                      disabled={loading}
                     >
                       <SelectTrigger className="w-full">
                         <SelectValue placeholder="Choose a fix…" />

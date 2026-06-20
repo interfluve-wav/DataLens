@@ -28,10 +28,10 @@ export function SheetPicker({
     <div className="flex flex-col gap-2">
       <Label htmlFor={id}>{label}</Label>
       <Select value={value} onValueChange={onChange} disabled={loading}>
-        <SelectTrigger id={id}>
+        <SelectTrigger id={id} className="w-full">
           <SelectValue placeholder={loading ? "Loading sheets…" : "Select sheet"} />
         </SelectTrigger>
-        <SelectContent>
+        <SelectContent className="max-h-72">
           {sheets.map((sheet) => (
             <SelectItem key={sheet} value={sheet}>
               {sheet}

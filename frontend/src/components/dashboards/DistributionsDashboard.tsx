@@ -27,6 +27,7 @@ import {
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { DashboardHeader } from "@/components/layout/DashboardHeader"
+import { useDataLens } from "@/context/DataLensContext"
 import { getColumnData } from "@/lib/api"
 import type { ColumnDataResponse, UploadResponse } from "@/types/datalens"
 
@@ -46,11 +47,22 @@ function EmptyChart({ message }: { message: string }) {
 }
 
 export function DistributionsDashboard({ data }: { data: UploadResponse }) {
+  const { loading: sessionLoading } = useDataLens()
   const columns = data.profiles
-  const [selected, setSelected] = useState(columns[0]?.name ?? "")
+  const columnNamesKey = columns.map((p) => p.name).join("\0")
+  const [selected, setSelected] = useState(() => columns[0]?.name ?? "")
   const [columnData, setColumnData] = useState<ColumnDataResponse | null>(null)
   const [loadError, setLoadError] = useState(false)
   const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    const names = columnNamesKey ? columnNamesKey.split("\0") : []
+    if (names.length === 0) {
+      setSelected("")
+      return
+    }
+    setSelected((current) => (names.includes(current) ? current : names[0]))
+  }, [columnNamesKey])
 
   useEffect(() => {
     if (!selected) return
@@ -155,16 +167,19 @@ export function DistributionsDashboard({ data }: { data: UploadResponse }) {
                   <Label htmlFor="dist-column" className="text-xs text-muted-foreground">
                     Column
                   </Label>
-                  <Select value={selected} onValueChange={setSelected}>
+                  <Select
+                    value={selected}
+                    onValueChange={setSelected}
+                    disabled={sessionLoading || loading}
+                  >
                     <SelectTrigger id="dist-column" className="w-full">
                       <SelectValue placeholder="Choose a column…" />
                     </SelectTrigger>
-                    <SelectContent position="popper" align="end">
+                    <SelectContent align="end" className="max-h-72">
                       <SelectGroup>
                         {columns.map((p) => (
                           <SelectItem key={p.name} value={p.name}>
-                            {p.name}
-                            <span className="ml-2 text-muted-foreground">({p.dtype})</span>
+                            {p.name} ({p.dtype})
                           </SelectItem>
                         ))}
                       </SelectGroup>
@@ -175,7 +190,7 @@ export function DistributionsDashboard({ data }: { data: UploadResponse }) {
             </CardHeader>
             <CardContent className="relative h-80 pt-4">
               {loading && (
-                <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-background/40 backdrop-blur-[1px]">
+                <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-background/40 backdrop-blur-[1px]">
                   <Loader2 className="size-5 animate-spin text-muted-foreground" />
                 </div>
               )}

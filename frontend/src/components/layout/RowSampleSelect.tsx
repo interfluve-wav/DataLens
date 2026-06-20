@@ -54,7 +54,7 @@ export function RowSampleSelect() {
           <Rows3 className="size-3.5 shrink-0 text-muted-foreground" />
           <SelectValue placeholder="Rows" />
         </SelectTrigger>
-        <SelectContent align="end">
+        <SelectContent className="max-h-72">
           <SelectGroup>
             <SelectItem value="all">
               All rows ({formatRows(total)})

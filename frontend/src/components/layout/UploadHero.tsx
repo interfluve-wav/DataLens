@@ -126,8 +126,9 @@ export function UploadHero() {
                 <Select
                   value={qualityProfile}
                   onValueChange={(v) => setQualityProfile(v as QualityProfileId)}
+                  disabled={loading}
                 >
-                  <SelectTrigger id="quality-profile">
+                  <SelectTrigger id="quality-profile" className="w-full">
                     <SelectValue placeholder="Select profile" />
                   </SelectTrigger>
                   <SelectContent>

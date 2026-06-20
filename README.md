@@ -12,7 +12,7 @@
 
 DataLens is a **local-first data quality workbench** for analysts, researchers, and ML engineers who need a fast, repeatable answer to: *“Is this dataset trustworthy enough to use?”*
 
-Unlike chat-only AI tools, DataLens runs **deterministic profiling first** (`profiler.py` + `quality_profiles.py`). Every score, contract rule, and violation count comes from pandas/scipy on your machine. Optional LLM review (Phase 1) only interprets a **bounded summary** of that output — it never sees your full dataset and cannot change scores or apply fixes without your approval.
+Profiling runs in Python first (`profiler.py` + `quality_profiles.py`). Every score, contract rule, and violation count comes from pandas/scipy on your machine. Optional **AI review** sends only a bounded summary of that output to a model (or uses the built-in mock verifier) — not your full dataset. The model cannot change scores or apply fixes.
 
 ### What you get
 
@@ -22,23 +22,21 @@ Unlike chat-only AI tools, DataLens runs **deterministic profiling first** (`pro
 | **Sector profiles** | Weighted dimension scores + pass/fail contracts for retail, healthcare, financial, survey, ML training |
 | **Dashboards** | Overview, columns, distributions, BI analytics, fixes, drift, correlation, report |
 | **Fixes** | Allowlisted transforms (`drop_nulls`, impute, strip whitespace, dedupe) with revision tracking |
-| **AI review** | Semantic triage over profiler evidence (mock or OpenAI); sub-cent per review on budget models |
+| **AI review** | Triage of profiler evidence with confirmed issues, rejected false positives, and cited samples |
 
 ### Who it’s for
 
-- **Survey / research teams** — duplicate respondents, item missingness, Likert encoding issues  
+- **Survey / research teams** — duplicate respondents, item missingness, mixed-type Likert columns  
 - **Retail / ops** — transaction keys, negative sales, duplicate rows  
-- **ML practitioners** — label presence, feature completeness, leakage hints via correlation  
+- **ML practitioners** — label presence, feature completeness, correlation views  
 - **Anyone with CSV/Excel/Parquet** — one upload, eight dashboards, exportable markdown report  
 
 ### Design principles
 
-1. **Deterministic truth** — Python counts; LLM advises  
+1. **Deterministic truth** — Python computes scores and rule pass/fail  
 2. **Auditable** — revision history, sample failures, exportable reports  
-3. **Polish over enterprise** — in-memory sessions, no auth wall for local dev  
-4. **Bounded AI** — context packer caps tokens; no raw PII in prompts by default  
-
-See [docs/DataLens-LLM-Integration-Architecture-Proposal.md](docs/DataLens-LLM-Integration-Architecture-Proposal.md) for the full LLM roadmap (verifier → fix planner → executor).
+3. **Local-first** — in-memory sessions for dev; no account required  
+4. **Bounded AI** — capped sample rows and column summaries in review prompts  
 
 ---
 
@@ -90,33 +88,35 @@ CSV, TSV, Excel (`.xlsx`, `.xlsm`), ODS, JSON, Parquet — via `tabular_loader.p
 | `retail` | Store/date/SKU uniqueness, non-negative sales |
 | `healthcare` | Clinical completeness, timeliness, precision |
 | `financial` | Timeliness, email format (KYC-oriented) |
-| `survey` | Respondent uniqueness, item missingness, completeness |
+| `survey` | Respondent uniqueness, high per-row item missingness, required columns |
 | `ml_training` | Label presence, duplicates, outliers |
 
 Each profile produces **dimension scores** (weighted 0–100) and **contract rules** (critical vs warning) with `sample_failures` for failed checks.
 
 ---
 
-## AI semantic review (Phase 1)
+## AI semantic review
 
-After upload, open **Quality Overview → Run AI review**. The pipeline:
+Available on **Quality Overview → Run AI review** after upload.
 
-1. **Context packer** — failed rules, capped sample rows, column summaries (~1.5–2.5k input tokens)  
-2. **Verifier** — structured JSON: confirmed issues, rejected false positives, evidence refs  
-3. **You** — read results; fixes still require explicit approval (Phase 2 planner coming)
+**What happens today:**
 
-### LLM configuration
+1. A **context pack** is built from profiler output: failed rules, up to five sample rows per rule, and column summaries.  
+2. A **verifier** returns structured JSON: `confirmed_issues`, `rejected_false_positives`, `evidence_refs`, and a short summary.  
+3. Results are stored on the session and marked **stale** when you apply fixes or change the row sample (re-run to refresh).  
+4. **Fixes** are still applied only through the Fixes dashboard — AI review does not auto-apply transforms.
+
+**Providers (shipped):**
+
+| `DATALENS_LLM_PROVIDER` | Behavior |
+|-------------------------|----------|
+| `mock` (default) | No API key; deterministic triage from profiler output |
+| `openai` | Uses `OPENAI_API_KEY` and `DATALENS_LLM_MODEL` (default `gpt-4o-mini`) |
+| `none` | Disables AI review UI and endpoints |
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DATALENS_LLM_PROVIDER` | `mock` | `mock` \| `openai` \| `none` |
-| `DATALENS_LLM_MODEL` | `gpt-4o-mini` | OpenAI model when provider is `openai` |
-| `OPENAI_API_KEY` | — | Required for `openai` provider |
-| `DATALENS_LLM_MAX_SAMPLE_ROWS` | `5` | Max sample rows per failed rule in context pack |
-
-`mock` runs without an API key (deterministic triage from profiler output). Set `none` to hide AI UI.
-
-**Cost ballpark** (one review, ~2.5k in / 1.5k out): Fireworks DeepSeek V4 Flash **&lt;0.1¢**, DeepSeek V4 Pro **~1¢**, Claude Opus 4.7 / GPT-5.5 **~5–6¢** — independent of dataset row count.
+| `DATALENS_LLM_MAX_SAMPLE_ROWS` | `5` | Max sample rows per failed rule in the context pack |
 
 ---
 
@@ -152,6 +152,8 @@ After upload, open **Quality Overview → Run AI review**. The pipeline:
 | `GET /api/session/{id}` | Full session payload (scores, rules, analytics) |
 | `POST /api/fixes` | Apply allowlisted column fixes, bump revision |
 | `POST /api/session/{id}/llm/verify` | Run AI semantic review |
+| `GET /api/session/{id}/llm/verification` | Fetch stored verification + stale flag |
+| `GET /api/llm/status` | Whether AI review is enabled and which provider is active |
 | `GET /api/session/{id}/report` | Markdown quality report |
 
 ---
@@ -166,12 +168,11 @@ DataLens/
 ├── tabular_loader.py      # Multi-format ingest
 ├── hardening.py           # Upload limits, sessions, fix allowlist
 ├── llm_config.py          # LLM provider env
-├── llm_context.py         # Context packer (bounded prompt payload)
+├── llm_context.py         # Context packer
 ├── llm_verifier.py        # Verifier (mock / OpenAI)
 ├── app.py                 # Legacy Streamlit UI
 ├── frontend/              # React primary UI
 ├── tests/                 # pytest suite
-├── docs/                  # Architecture & design docs
 ├── scripts/dev.sh         # Local dev orchestration
 └── requirements.txt
 ```
@@ -180,13 +181,11 @@ DataLens/
 
 ## Validation
 
-Scores and contract results trace to **pandas/scipy on real data** — not LLM guesses.
+Scores and contract results trace to **pandas/scipy on real data**. AI review interprets that output; it does not replace profiling.
 
 ```bash
 venv/bin/python3 -m pytest tests/ -v
 ```
-
-Integration tests cover multi-format upload, retail/survey contracts, API hardening, analytics, and LLM verify + revision invalidation.
 
 ---
 
@@ -209,5 +208,3 @@ MIT License — free to use, modify, and distribute.
 ## Author
 
 **Suhaas Chitturi** — [@interfluve-wav](https://github.com/interfluve-wav)
-
-DataLens demonstrates production-minded data quality tooling: deterministic analytics, sector contracts, a modern React dashboard, and a trust-boundary-aware LLM integration path.

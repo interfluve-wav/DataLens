@@ -9,7 +9,6 @@ streamlit.log
 *.csv
 *.md
 !README.md
-!docs/**/*.md
 !.gitignore
 node_modules/
 frontend/dist/

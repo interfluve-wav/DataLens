@@ -14,3 +14,4 @@ node_modules/
 frontend/dist/
 frontend/.env
 .cursor/
+tests/fixtures/.firecrawl-*.json

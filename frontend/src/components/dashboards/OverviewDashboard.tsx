@@ -215,7 +215,7 @@ export function OverviewDashboard({
         </Card>
       )}
 
-      {onDataUpdate && <AiReviewPanel data={data} onUpdate={onDataUpdate} />}
+      {onDataUpdate !== undefined && <AiReviewPanel data={data} onUpdate={onDataUpdate} />}
 
       <StaggerChildren className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {kpis.map((kpi) => (

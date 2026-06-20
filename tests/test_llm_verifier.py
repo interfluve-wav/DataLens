@@ -99,7 +99,8 @@ def test_mock_verifier_returns_structured_result():
     assert result.verification_confidence >= 0
 
 
-def test_llm_verify_endpoint_stores_and_revision_invalidation():
+def test_llm_verify_endpoint_stores_and_revision_invalidation(monkeypatch):
+    monkeypatch.setenv("DATALENS_LLM_PROVIDER", "mock")
     assert llm_enabled()
     r = _upload_survey()
     assert r.status_code == 200

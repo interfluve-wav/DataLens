@@ -8,8 +8,8 @@ VALID_LLM_PROVIDERS = frozenset({"none", "mock", "openai"})
 
 
 def llm_provider() -> str:
-    raw = os.environ.get("DATALENS_LLM_PROVIDER", "mock").strip().lower()
-    return raw if raw in VALID_LLM_PROVIDERS else "mock"
+    raw = os.environ.get("DATALENS_LLM_PROVIDER", "none").strip().lower()
+    return raw if raw in VALID_LLM_PROVIDERS else "none"
 
 
 def llm_enabled() -> bool:

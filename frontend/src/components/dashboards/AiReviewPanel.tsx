@@ -13,22 +13,22 @@ import {
 import { runLlmVerify } from "@/lib/api"
 import type { LlmVerificationResult, UploadResponse } from "@/types/datalens"
 
+const COMING_SOON_LABEL = "Coming in the next update"
+
 export function AiReviewPanel({
   data,
   onUpdate,
 }: {
   data: UploadResponse
-  onUpdate: (next: UploadResponse) => void
+  onUpdate?: (next: UploadResponse) => void
 }) {
   const [loading, setLoading] = useState(false)
+  const enabled = data.llm_available === true
   const verification = data.llm_verification
   const stale = data.llm_verification_stale
 
-  if (!data.llm_available) {
-    return null
-  }
-
   const handleRun = async () => {
+    if (!enabled || !onUpdate) return
     setLoading(true)
     try {
       const next = await runLlmVerify(data.session_id)
@@ -41,6 +41,41 @@ export function AiReviewPanel({
     }
   }
 
+  if (!enabled) {
+    return (
+      <Card className="glass-panel border-border/60 opacity-90">
+        <CardHeader className="pb-2">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Brain className="size-4 text-muted-foreground" />
+              <CardTitle className="text-base text-muted-foreground">
+                AI semantic review
+              </CardTitle>
+              <Badge variant="secondary" className="text-xs">
+                {COMING_SOON_LABEL}
+              </Badge>
+            </div>
+            <Button size="sm" variant="outline" disabled className="pointer-events-none">
+              <Brain data-icon="inline-start" />
+              Run AI review
+            </Button>
+          </div>
+          <CardDescription>
+            Semantic triage of profiler results — confirmed issues, false-positive
+            rejection, and cited sample rows. Not available yet.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            AI-assisted review will interpret contract failures and column flags from
+            deterministic profiling. It will not analyze your full dataset or change scores
+            automatically. Check back in the next release.
+          </p>
+        </CardContent>
+      </Card>
+    )
+  }
+
   return (
     <Card className="glass-panel border-chart-4/30">
       <CardHeader className="pb-2">
@@ -49,7 +84,12 @@ export function AiReviewPanel({
             <Brain className="size-4 text-chart-4" />
             <CardTitle className="text-base">AI semantic review</CardTitle>
           </div>
-          <Button size="sm" variant="outline" onClick={handleRun} disabled={loading}>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleRun}
+            disabled={loading || !onUpdate}
+          >
             {loading ? (
               <Loader2 className="size-4 animate-spin" data-icon="inline-start" />
             ) : (

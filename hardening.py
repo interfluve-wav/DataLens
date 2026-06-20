@@ -15,9 +15,9 @@ from fastapi import HTTPException, UploadFile
 
 logger = logging.getLogger("datalens")
 
-MAX_UPLOAD_BYTES = int(os.environ.get("DATALENS_MAX_UPLOAD_BYTES", 100 * 1024 * 1024))
-MAX_FETCH_BYTES = int(os.environ.get("DATALENS_MAX_FETCH_BYTES", 100 * 1024 * 1024))
-MAX_ROWS = int(os.environ.get("DATALENS_MAX_ROWS", 500_000))
+MAX_UPLOAD_BYTES = int(os.environ.get("DATALENS_MAX_UPLOAD_BYTES", 500 * 1024 * 1024))
+MAX_FETCH_BYTES = int(os.environ.get("DATALENS_MAX_FETCH_BYTES", 500 * 1024 * 1024))
+MAX_ROWS = int(os.environ.get("DATALENS_MAX_ROWS", 1_000_000))
 MAX_COLUMNS = int(os.environ.get("DATALENS_MAX_COLUMNS", 500))
 MAX_SESSIONS = int(os.environ.get("DATALENS_MAX_SESSIONS", 100))
 SESSION_TTL_SECONDS = int(os.environ.get("DATALENS_SESSION_TTL_SECONDS", 86_400))
@@ -52,9 +52,10 @@ async def read_upload_bounded(file: UploadFile) -> bytes:
             break
         total += len(chunk)
         if total > MAX_UPLOAD_BYTES:
+            max_mb = MAX_UPLOAD_BYTES // (1024 * 1024)
             raise HTTPException(
                 413,
-                f"File too large (max {MAX_UPLOAD_BYTES // (1024 * 1024)} MB)",
+                f"File too large (max {max_mb} MB). Set DATALENS_MAX_UPLOAD_BYTES to raise the limit.",
             )
         chunks.append(chunk)
     return b"".join(chunks)
@@ -62,8 +63,10 @@ async def read_upload_bounded(file: UploadFile) -> bytes:
 
 def enforce_fetch_size(content: bytes, label: str = "response") -> None:
     if len(content) > MAX_FETCH_BYTES:
+        max_mb = MAX_FETCH_BYTES // (1024 * 1024)
         raise ValueError(
-            f"{label} exceeds size limit ({MAX_FETCH_BYTES // (1024 * 1024)} MB)"
+            f"{label} exceeds size limit ({max_mb} MB). "
+            "Set DATALENS_MAX_FETCH_BYTES to raise the limit."
         )
 
 
@@ -73,7 +76,10 @@ def enforce_dataframe_limits(df: pd.DataFrame) -> None:
             f"Too many columns ({len(df.columns)}). Maximum is {MAX_COLUMNS}."
         )
     if len(df) > MAX_ROWS:
-        raise ValueError(f"Too many rows ({len(df)}). Maximum is {MAX_ROWS:,}.")
+        raise ValueError(
+            f"Too many rows ({len(df):,}). Maximum is {MAX_ROWS:,}. "
+            "Set DATALENS_MAX_ROWS to raise the limit."
+        )
 
 
 def validate_fixes(fixes: Dict[str, str]) -> None:
